@@ -3,5 +3,5 @@ this is a js simulation of the forces between subatomic particles and between mo
 
 DISCLAIMER: 
 the atomic model is not totally accurate |
-the scale is limited to protons, neutrons and electrons, it doeasn't reach quarks and doesn't include bosons |
+the scale is limited to protons, neutrons and electrons, it doesn't reach quarks and doesn't include bosons |
 the simulator is in development 
