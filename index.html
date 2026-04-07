@@ -3,6 +3,10 @@
 
 <head>
   <style>
+    * {
+      cursor: none !important;
+    }
+
     body {
       margin: 0;
       overflow: hidden;
@@ -144,6 +148,16 @@
       box-shadow: 0 4px 15px rgba(77, 121, 255, 0.7);
       border-color: #4d79ff;
     }
+
+    #cursorCanvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 9999;
+    }
   </style>
 </head>
 
@@ -159,12 +173,11 @@
         <li><span>add particle</span> <kbd>click</kbd></li>
         <li><span>copy / paste</span> <kbd>cmd + c / v</kbd></li>
         <li><span>select area</span> <kbd>click + drag</kbd></li>
-        <li><span>unselect</span> <kbd>select + click away</kbd></li>
         <li><span>move selection</span> <kbd>select + drag</kbd></li>
         <li><span>move camera</span> <kbd>2 fingers / wheel</kbd></li>
         <li><span>zoom</span> <kbd>pinch / ctrl + wheel</kbd></li>
         <li><span>time control</span> <kbd>← / → arrows</kbd></li>
-        <li><span>pause</span> <kbd>P</kbd></li>
+        <li><span>pause</span> <kbd>p</kbd></li>
         <li><span>switch particle</span> <kbd>1, 2, 3</kbd></li>
         <li><span>delete selection</span> <kbd>canc / delete</kbd></li>
         <li><span>total reset</span> <kbd>R</kbd></li>
@@ -181,6 +194,7 @@
   </div>
 
   <canvas id="gameCanvas"></canvas>
+  <canvas id="cursorCanvas"></canvas>
 
   <script>
     const canvas = document.getElementById("gameCanvas");
@@ -188,6 +202,11 @@
     const countEl = document.getElementById('count');
     const speedEl = document.getElementById('speed-val');
     const menuOverlay = document.getElementById('menu-overlay');
+    const cursorCanvas = document.getElementById("cursorCanvas");
+    const cursorCtx = cursorCanvas.getContext("2d");
+
+    cursorCanvas.width = window.innerWidth;
+    cursorCanvas.height = window.innerHeight;
 
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -207,6 +226,7 @@
     let mousePos = { x: 0, y: 0 };
     let history = [];
     const MAX_HISTORY = 10000;
+    let hoveredParticle = null;
 
 
     let isMouseDown = false;
@@ -215,6 +235,92 @@
     let lastWorldMouse = { x: 0, y: 0 };
     let selectionStart = { x: 0, y: 0 };
     let selectionEnd = { x: 0, y: 0 };
+
+    function drawCustomCursor() {
+      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+
+      const x = mousePos.x;
+      const y = mousePos.y;
+      const size = 12;
+      const thickness = 7;
+
+      try {
+        const hLine = ctx.getImageData(x - size, y - Math.floor(thickness / 2), size * 2 + 1, thickness);
+        const hData = hLine.data;
+
+        for (let i = 0; i < hData.length; i += 4) {
+          hData[i] = 255 - hData[i];
+          hData[i + 1] = 255 - hData[i + 1];
+          hData[i + 2] = 255 - hData[i + 2];
+        }
+
+        cursorCtx.putImageData(hLine, x - size, y - Math.floor(thickness / 2));
+      } catch (e) { }
+
+      try {
+        const vLine = ctx.getImageData(x - Math.floor(thickness / 2), y - size, thickness, size * 2 + 1);
+        const vData = vLine.data;
+
+        for (let i = 0; i < vData.length; i += 4) {
+          vData[i] = 255 - vData[i];
+          vData[i + 1] = 255 - vData[i + 1];
+          vData[i + 2] = 255 - vData[i + 2];
+        }
+
+        cursorCtx.putImageData(vLine, x - Math.floor(thickness / 2), y - size);
+      } catch (e) { }
+    }
+
+    function getHoveredParticle(worldX, worldY) {
+      for (let p of particles) {
+        const dx = p.x - worldX;
+        const dy = p.y - worldY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < p.radius + 5) return p;
+      }
+      return null;
+    }
+
+    function getSelectedCounts() {
+      const counts = {};
+      particles.forEach(p => {
+        if (p.selected) {
+          counts[p.type] = (counts[p.type] || 0) + 1;
+        }
+      });
+      return counts;
+    }
+
+    function drawCursorUI() {
+      const counts = getSelectedCounts();
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+
+      if (total === 0) return;
+
+      ctx.save();
+
+      const offsetX = 15;
+      let y = mousePos.y + 15;
+
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+      ctx.fillStyle = "white";
+      ctx.font = "12px Segoe UI";
+
+      ctx.fillText(`Selected - ${total}`, mousePos.x + offsetX, y);
+      y += 15;
+
+      ctx.fillText(`protons - ${counts.proton || 0}`, mousePos.x + offsetX, y);
+      y += 15;
+
+      ctx.fillText(`neutrons - ${counts.neutron || 0}`, mousePos.x + offsetX, y);
+      y += 15;
+
+      ctx.fillText(`electrons - ${counts.electron || 0}`, mousePos.x + offsetX, y);
+
+      ctx.restore();
+    }
 
     class Particle {
       constructor(x, y, type) {
@@ -410,6 +516,8 @@
 
     window.addEventListener('mousemove', (e) => {
       mousePos = { x: e.clientX, y: e.clientY };
+      const world = screenToWorld(e.clientX, e.clientY);
+      hoveredParticle = getHoveredParticle(world.x, world.y);
       if (!isMouseDown) return;
       const worldCoords = screenToWorld(e.clientX, e.clientY);
       const dx = worldCoords.x - lastWorldMouse.x;
@@ -460,10 +568,10 @@
       }
       if (key === 'm') toggleMenu();
       if (isMenuOpen) return;
-      if (key === 'p') { 
-        isPaused = !isPaused; 
-        timeScale = 1.0;
-        document.getElementById('pauseMsg').style.display = isPaused ? 'block' : 'none'; 
+      if (key === 'p') {
+        isPaused = !isPaused;
+        timeScale = 1.0; // Reset della velocità
+        document.getElementById('pauseMsg').style.display = isPaused ? 'block' : 'none';
       }
       if (key === 'r') clearParticles(null);
       if (key === '1') setType(null, 'proton');
@@ -496,18 +604,18 @@
         isPaused = false;
         document.getElementById('pauseMsg').style.display = 'none';
       } else {
+        // Se hai appena rilasciato una freccia (eri in accelerazione o rewind)
         if (timeScale !== 1.0) {
           timeScale = 0.0;
-          isPaused = true; 
+          isPaused = true; // Metti in pausa solo al rilascio delle frecce
           document.getElementById('pauseMsg').style.display = 'block';
         }
       }
 
+      // UI: Mostra 0.00 se fermo, altrimenti la velocità reale
       let displayScale = (isPaused && !keys['ArrowLeft'] && !keys['ArrowRight']) ? 0 : timeScale;
       speedEl.innerText = displayScale.toFixed(2);
     }
-
-
 
     function animate() {
       updateTimeScale();
@@ -556,11 +664,19 @@
       }
 
       particles.forEach(p => p.draw());
+      drawCursorUI();
+      drawCustomCursor();
       countEl.innerText = particles.length;
       requestAnimationFrame(animate);
     }
 
-    window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+
+      cursorCanvas.width = window.innerWidth;
+      cursorCanvas.height = window.innerHeight;
+    });
     animate();
   </script>
 </body>
